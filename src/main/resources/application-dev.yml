@@ -1,0 +1,7 @@
+database:
+  username: dev
+  password: devpw
+  server:
+    ip: devip
+    port: 1234
+

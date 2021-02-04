@@ -1,0 +1,6 @@
+database:
+  username: prod
+  password: prodpw
+  server:
+    ip: prodip
+    port: 1234
