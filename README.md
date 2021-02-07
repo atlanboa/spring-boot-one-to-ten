@@ -1,293 +1,554 @@
-# 1. Spring Boot Configuration Metadata
+이전 포스팅에서는 서비스 레이어에 관해서 다뤘습니다.
 
-스프링 부트 어플리케이션을 개발할때, Configuration Properties 를 Java Beans 에 매핑하는 것은 매우 유용합니다.
-
-많은 개발자들이 개발하는 과정에서 설정 파라미터 값을 변경해야 하는데, 이 기본 값이 무엇인지, 더 이상 사용되지 않는지
-
-알기가 쉽지 않죠. 이러한 부분을 쉽게 JSON file 로 생성해주는 모듈입니다.
+이번 레이어는 컨트롤러 레이어입니다.
 
 
 
-# 2. 의존성 추가
+# 1. UserController
 
-```groovy
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter'
-    compileOnly 'org.projectlombok:lombok'
-    developmentOnly 'org.springframework.boot:spring-boot-devtools'
-    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
-    annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+이 레이어에서는 모든 서비스 메소드를 다 활용하지는 않겠습니다.
+
+먼저 코드를 보기전에 개념적인 부분만 짚고 갈게요.
+
+## 1.1 @Controller vs @RestController
+
+그냥 @Controller 와 @RestController 의 차이점이 무엇인가에 대해서 잠깐 짚고 갈 필요가 있습니다.
+
+### 1.1.1 @Controller
+
+전통적인 Spring MVC의 컨트롤러인 @Controller 는 주로 ***View 를 반환***하기 위해 사용됩니다.
+
+![](https://img1.daumcdn.net/thumb/R1280x0/?scode=mtistory2&fname=https%3A%2F%2Fblog.kakaocdn.net%2Fdn%2F2BnED%2Fbtqybg36Dak%2F3HgL3gUKHBSOmyeM4hIn00%2Fimg.png)
+
+기본적인 MVC flow 를 확인해보겠습니다.
+
+
+
+1. 사용자가 요청을 보낸다.
+2. Dispatcher Servlet 이 URL 과 매핑되는 컨트롤러를 리턴한다.
+3. 해당되는 컨트롤러는 요청을 처리하고, ModelAndView 를 리턴한다.
+
+
+
+여기서 3번이 컨트롤러의 역할이 되는거죠. 또한 이때 View 를 반환하기 위해 **ViewResolver** 가 사용됩니다.
+
+정확하게는 **컨트롤러가 Dispatcher Servlet 에 나 이러한 View 를 반환할게** 라고 요청하면
+
+Dispatcher Servlet 에서 찾아서 리턴해줍니다.
+
+
+
+또한 Spring MVC 에서 컨트롤러 또한 데이터를 반환해야 되는 경우도 있습니다. 이 때는 반환 타입에 쉽게
+
+@ResponseBody 를 붙여주면 됩니다.
+
+```java
+package com.mang.blog.application.user.controller;
+
+import com.mang.blog.application.user.model.UserVO;
+import com.mang.blog.application.user.service.UserService;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import javax.annotation.Resource;
+
+@Controller
+@RequestMapping("/user")
+public class UserController {
+
+    @Resource(name = "userService")
+    private UserService userService;
+
+    @PostMapping(value = "/info")
+    public @ResponseBody User info(@RequestBody User user){
+        return userService.retrieveUserInfo(user);
+    }
+    
+    @GetMapping(value = "/infoView")
+    public String infoView(Model model, @RequestParam(value = "userName", required = true) String userName){
+        User user = userService.retrieveUserInfo(userName);
+        model.addAttribute("user", user);
+        return "/user/userInfoView";
+    }
+
 }
 ```
 
-프로젝트를 진행하면서 좀 더 쉽게 사용하기 위해서, 롬복같은 의존성들을 추가하였습니다.
+그럼 @RestController 가 왜 필요한 것인가요.
 
 
 
-> ​    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+### 1.1.2 @RestController
 
-configuration processor 를 사용하기 위해 의존성을 추가합니다.
+주로 데이터를 반환하기 위한 목적으로 사용됩니다. REST 한 방식으로 설계하는 API 에서 주로 사용됩니다.
 
+기존의 컨트롤러에서 데이터를 반환하기 위해서는 @ResponseBody 가 필요하다고 했는데, @RestController 는 기본적으로 반환에
 
-
-위의 의존성 추가 과정을 거치지 말고 아래 코드를 다운받아서 시작해주세요.
-
-> https://github.com/atlanboa/spring-boot-one-to-ten.git
+@ResponseBody 가 붙어있습니다. Json 형식의 데이터를 쉽게 반환할 수 있죠.
 
 
 
-# 3. Configuration Properties 예제
+> @Controller와 @RestController의 차이 https://mangkyu.tistory.com/49
+
+## 1.2 UserController Class
 
 ```java
-import lombok.Getter;
-import lombok.Setter;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
+package com.plee.auth.controller;
 
-@Configuration
-@ConfigurationProperties(prefix = "database")
-@Getter
-@Setter
-public class DatabaseProperties {
+import com.plee.auth.domain.User;
+import com.plee.auth.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
 
-    @Getter
-    @Setter
-    public static class Server {
+@RestController
+public class UserController {
 
-        private String ip;
-        private int port;
+    private final UserService userService;
 
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
     }
 
-    private String username;
+    @GetMapping("/user/email")
+    public User findUserByEmail(@RequestParam String email) {
+        return userService.findByEmail(email);
+    }
+
+    @GetMapping("/user/id")
+    public ResponseEntity<User> findUserById(@RequestParam Long id) {
+        return ResponseEntity.ok(userService.get(id));
+    }
+}
+```
+
+기존의 Controller 클래스와는 다르게  RestController에서는 따로 ResponseEntity 가 필요하지 않습니다.
+
+하지만 여기서 알고 넘어가야 되는 부분은 2가지입니다.
+
+### 1.2.1 ResponseEntity
+
+단순히 findUserByEmail 처럼 엔티티를 반환해버리면 User 클래스가 Json 으로 변경된 값만 넘어갑니다.
+
+일반적으로는 **데이터를 반환할 때 상태 코드와 함께 반환**해주는 것이 좋습니다.
+
+따라서 findUserById 처럼 상태 코드를 함께 반환해주는 것이죠.
+
+### 1.2.1 User Entity
+
+우리는 User 클래스를 엔티티 클래스로 사용하고 있습니다.
+
+하지만 이렇게 엔티티 클래스를 Data Transfer Object 즉 Dto 로 사용하게 되면 몇가지 문제점이 있습니다.
+
+1. 개발 단계에서 요구 사항에 따라 Client 가 요구하는 데이터 형식이 달라질 가능성이 매우 높다.
+2. 데이터 형식이 변경되면 데이터베이스까지 영향을 미친다.
+
+
+
+따라서, 이렇게 직접 엔티티 클래스를 반환하는 것보다 컨트롤러와 클라이언트 사이의 통신을 위한 Dto 를 따로 정의하는게 좋습니다.
+
+위의 코드를 수정해보겠습니다.
+
+
+
+```java
+package com.plee.auth.controller;
+
+import com.plee.auth.domain.User;
+import com.plee.auth.dto.UserDto;
+import com.plee.auth.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+public class UserController {
+
+    private final UserService userService;
+
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @GetMapping("/user/email")
+    public ResponseEntity<UserDto> findUserByEmail(@RequestParam String email) {
+        User user = userService.findByEmail(email);
+        return ResponseEntity.ok(UserDto.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .password(null).build());
+    }
+
+    @GetMapping("/user/id")
+    public ResponseEntity<UserDto> findUserById(@RequestParam Long id) {
+        User user = userService.get(id);
+        return ResponseEntity.ok(UserDto.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .password(null)
+                .build());
+    }
+
+    @PostMapping("/user")
+    public ResponseEntity<UserDto> addUser(@RequestBody UserDto userDto) {
+        User user = userService.add(User.builder()
+                .id(null)
+                .email(userDto.getEmail())
+                .password(userDto.getPassword())
+                .build());
+        return ResponseEntity.ok(UserDto.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .password(null)
+                .build());
+    }
+}
+
+```
+
+
+
+```java
+import com.plee.auth.domain.User;
+import lombok.Data;
+
+@Data
+public class UserDto {
+    private Long id;
+    private String email;
     private String password;
-    private Server server;
 
+    private UserDto(Long id, String email) {
+        this.id = id;
+        this.email = email;
+        this.password = null;
+    }
+
+    public static UserDto of(User user) {
+        return new UserDto(user.getId(), user.getEmail());
+    }
 }
+
 ```
 
-processor 가 어떻게 동작하는지 보기 위해서, 스프링 부트 어플리케이션에서 사용되는 몇 가지 속성을 사용해보겠습니다.
+위와 같이 수정하면, 더 이상 Controller Layer 에서 엔티티 클래스를 직접 반환하지 않게 됩니다.
 
-## 3.1 @ConfigurationProperties 어노테이션
+물론 User와 관련된 데이터를 전송받을 때도 UserDto 를 통해서 받으면 됩니다.
 
-configuration processor 는 @ConfigurationProperties 를 가지고 있는 모든 클래스와 메소드를 스캔합니다.이를 통해서 configuration
+또한 데이터 전송에 있어서 매번 비밀번호가 노출되는 것을 올바르지 않음으로, 관련 요청이 있을때만 따로 사용할 수 있도록
 
-parameter에 접근하고, configuration metadata 를 생성합니다.
+password 필드는 항상 Null 로 초기화합니다.
 
-## 3.2 속성 설정
 
-```yaml
-database:
-  username: dev
-  password: devpw
-  server:
-    ip: devip
-    port: 1234
-```
 
-application.yml 파일에 아래와 같은 속성을 정의하겠습니다.
+추가적으로 유저를 추가하는 요청도 하나 만들어줍니다.
 
-## 3.3 테스트
 
-잘 읽어오는지 확인해보겠습니다.
+
+자 여기까지 코드가 완성됐으면, 이제 직접 컨트롤러 Unit 테스트를 만들어보겠습니다.
+
+여기서는 post 에 대한 부분은 넘어가겠습니다.
+
+# 2. Controll Unit Test
 
 ```java
-import com.plee.auth.AuthApplication;
+import com.plee.auth.domain.User;
+import com.plee.auth.dto.UserDto;
+import com.plee.auth.exception.UserNotFoundException;
+import com.plee.auth.service.UserServiceImpl;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
+import java.util.Objects;
 
-@ExtendWith(SpringExtension.class)
-@SpringBootTest
-public class DatabasePropertiesIntegrationTest {
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
-    @Autowired
-    private DatabaseProperties databaseProperties;
+@ExtendWith(MockitoExtension.class)
+class UserControllerUnitTest {
+
+    @Mock
+    private UserServiceImpl userService;
+
+    @InjectMocks
+    private UserController userController;
+
 
     @Test
-    public void whenSimplePropertyQueriedThenReturnsPropertyValue()
-            throws Exception {
-        Assertions.assertEquals("dev", databaseProperties.getUsername(),
-                "Incorrectly bound Username property");
-        Assertions.assertEquals("devpw", databaseProperties.getPassword(),
-                "Incorrectly bound Password property");
+    void findUserByEmailSuccessTest() throws Exception {
+
+        final User testUser = new User(0L, "test@gmail.com", "password");
+        final UserDto testUserDto = UserDto.of(testUser);
+
+        given(userService.findByEmail(testUserDto.getEmail()))
+                .willReturn(testUser);
+
+        ResponseEntity<UserDto> responseEntity = userController.findUserByEmail(testUserDto.getEmail());
+        Assertions.assertNotNull(responseEntity);
+        Assertions.assertEquals(HttpStatus.OK,responseEntity.getStatusCode());
+        Assertions.assertEquals(testUserDto.getEmail(), Objects.requireNonNull(responseEntity.getBody()).getEmail());
+        verify(userService).findByEmail(anyString());
+
     }
 
     @Test
-    public void whenNestedPropertyQueriedThenReturnsPropertyValue()
-            throws Exception {
-        Assertions.assertEquals("devip", databaseProperties.getServer().getIp(),
-                "Incorrectly bound Server IP nested property");
-        Assertions.assertEquals(1234, databaseProperties.getServer().getPort(),
-                "Incorrectly bound Server Port nested property");
+    void findUserByEmailFailureTest() throws Exception {
+
+        given(userService.findByEmail(anyString()))
+                .willThrow(UserNotFoundException.class);
+
+        Assertions.assertThrows(UserNotFoundException.class, () -> userController.findUserByEmail(anyString()));
+        verify(userService).findByEmail(anyString());
+
+    }
+
+    @Test
+    void findUserByIdSuccessTest() {
+        final User testUser = new User(0L, "test@gmail.com", "password");
+        final UserDto testUserDto = UserDto.of(testUser);
+
+        given(userService.get(testUser.getId()))
+                .willReturn(testUser);
+
+        ResponseEntity<UserDto> responseEntity = userController.findUserById(testUser.getId());
+        Assertions.assertNotNull(responseEntity);
+        Assertions.assertEquals(HttpStatus.OK,responseEntity.getStatusCode());
+        Assertions.assertEquals(testUserDto.getEmail(), Objects.requireNonNull(responseEntity.getBody()).getEmail());
+        verify(userService).get(anyLong());
+    }
+
+    @Test
+    void findUserByIdFailureTest() {
+        given(userService.get(anyLong()))
+                .willThrow(UserNotFoundException.class);
+        Assertions.assertThrows(UserNotFoundException.class, () -> userController.findUserById(anyLong()));
+        verify(userService).get(anyLong());
     }
 }
 ```
 
-통합 테스트 코드는 테스트 소스 코드 패키지를 추가로 생성하고, 클래스 이름에 꼭 통합테스트라고 명시해주는게 좋습니다.
+컨트롤러 유닛 테스트 또한 다른 의존성에 영향을 받지 않도록, 메소드에 대한 로직을 테스트하는 것입니다.
 
-### 3.3.1 @ExtendWith
+따라서 Mock 객체를 사용할 수 있도록 @ExtendWith(MockitoExtension.class) 를 사용합니다.
 
-Junit5 에서 통합 테스트를 진행하기 위해서 사용하는 어노테이션입니다. SpringExtension.class 가 필요합니다.
+UserController 는 UserService에 의존성을 가지고 있습니다. 또한 UserServiceImpl 을 직접 사용하게 됩니다.
 
-### 3.3.2 @SpringBootTest
+따라서 여기서는 컨트롤러가 런타임에서 주입받을 UserServiceImpl 을 Mock 객체로 생성해주고
 
-스프링 부트를 실행하면서 @Configuration 으로 지정된 클래스를 Bean 으로 등록해주는데, 이를 DI 받기 위해서는 필요합니다.
-
-### 3.3.3 테스트
-
-테스트는 성공적으로 됩니다.
+@InjectMocks 로 userController 를 선언합니다.
 
 
 
-# 4. application.yml 파일 Profile 분리
-
-기본적으로 아무런 profile 설정을 하지 않으면, application.yml 파일을 찾아서 설정 값을 로드합니다.
-
-하지만 우리가 개발을 진행할 때, 배포할 때는 사용하는 설정 값들이 달라지기 마련입니다.
-
-기존의 파일을 세개로 분리해봅시다.
-
-## 4.1 application.yml
-
-```yaml
-spring:
-  profiles:
-    active: dev
-```
-
-## 4.2 application-prod.yml
-
-```yaml
-database:
-  username: prod
-  password: prodpw
-  server:
-    ip: prodip
-    port: 1234
-```
-
-## 4.3 application-dev.yml
-
-```yaml
-database:
-  username: dev
-  password: devpw
-  server:
-    ip: devip
-    port: 1234
-```
+따라서 각 메소드들을 호출되었을때, 적절한 응답 코드와 반환값들을 넘겨주는지 테스트합니다.
 
 
 
-3개의 개발환경으로 나눴습니다.
+# 3. Controller MockMvc Test
 
-4.1 과 같이 활성화할 프로파일을 dev 로 지정해주면 application-<profile>.yml 파일 중에서 profile 이 일치하는 파일을 사용하게 됩니다.
+MockMvc 테스트는 실질적으로 API의 엔드포인트에 대한 요청을 테스트할 수 있습니다.
 
+제가 이 부분을 공부하면서, 크게 삽질한 부분이 있는데 그 부분도 짚고 넘어가겠습니다.
 
-
-## 5. 분리한 application.yml 테스트
-
-각각의 파일을 잘 로드하는지 테스트 하기 위해서 기존의 테스트 파일을 두개로 분리합니다.
-
-### 5.1 DatabasePropertiesDevIntegrationTest.class
+먼저 코드입니다.
 
 ```java
-import org.junit.jupiter.api.Assertions;
+package com.plee.auth.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.plee.auth.domain.User;
+import com.plee.auth.dto.UserDto;
+import com.plee.auth.service.UserServiceImpl;
+import org.hamcrest.core.IsNull;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import static org.hamcrest.core.Is.is;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@ExtendWith(SpringExtension.class)
-@SpringBootTest
-@ActiveProfiles(value = "dev")
-public class DatabasePropertiesDevIntegrationTest {
+@WebMvcTest(UserController.class)
+@ActiveProfiles("dev")
+public class UserControllerMockMvcTest {
+
 
     @Autowired
-    private DatabaseProperties databaseProperties;
+    private MockMvc mockMvc;
+
+    ObjectMapper mapper = new ObjectMapper();
+
+    @MockBean
+    private UserServiceImpl userService;
+
+    final UserDto userDto = UserDto.builder()
+            .id(3L)
+            .email("email")
+            .password("password")
+            .build();
+
+    final User user = User.builder()
+            .id(3L)
+            .email("email")
+            .password("password")
+            .build();
 
     @Test
-    public void whenSimplePropertyQueriedThenReturnsPropertyValue()
-            throws Exception {
-        Assertions.assertEquals("dev", databaseProperties.getUsername(),
-                "Incorrectly bound Username property");
-        Assertions.assertEquals("devpw", databaseProperties.getPassword(),
-                "Incorrectly bound Password property");
+    public void userFindByEmailTest() throws Exception{
+        Mockito.when(userService.findByEmail(userDto.getEmail())).thenReturn(user);
+
+        mockMvc.perform(MockMvcRequestBuilders.get("/user/email").param("email", userDto.getEmail()).contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(user.getId().intValue())))
+                .andExpect(jsonPath("$.email", is(user.getEmail())))
+                .andExpect(jsonPath("$.password").value(IsNull.nullValue()));
     }
 
     @Test
-    public void whenNestedPropertyQueriedThenReturnsPropertyValue()
-            throws Exception {
-        Assertions.assertEquals("devip", databaseProperties.getServer().getIp(),
-                "Incorrectly bound Server IP nested property");
-        Assertions.assertEquals(1234, databaseProperties.getServer().getPort(),
-                "Incorrectly bound Server Port nested property");
+    public void userAddUserTest() throws Exception{
+        given(userService.add(any(User.class))).willReturn(user);
+
+        mockMvc.perform(MockMvcRequestBuilders
+                .post("/user")
+                .content(mapper.writeValueAsString(userDto))
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(userDto.getId().intValue())))
+                .andExpect(jsonPath("$.email", is(userDto.getEmail())))
+                .andExpect(jsonPath("$.password").value(IsNull.nullValue()));
     }
+
+    @Test
+    public void userFindByIdTest() throws Exception{
+        Mockito.when(userService.get(user.getId())).thenReturn(user);
+
+        mockMvc.perform(MockMvcRequestBuilders
+                .get("/user/id")
+                .param("id", userDto.getId().toString())
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(user.getId().intValue())))
+                .andExpect(jsonPath("$.email", is(user.getEmail())))
+                .andExpect(jsonPath("$.password").value(IsNull.nullValue()));
+    }
+
+
 }
 ```
 
-### 5.2 DatabasePropertiesProdIntegrationTest.class
+차근차근 살펴갑니다.
+
+## 3.1 @WebMvcTest
+
+**@WebMvcTest 어노테이션을 사용함으로써 얻을 수 있는 이점은 다음과 같습니다.**
+
+1. HTTP server 를 실행하지 않고도, 컨트롤러 테스트가 가능하다.
+2. 웹상에서 요청과 응답에 대한 테스트를 할 수 있다.
+3. 모든 설정 정보가 로드되는 것이 아니기 때문에, 테스트가 조금 가볍다. 여전히 무겁긴 합니다.
+4.  Spring security, @AutoConfigureWebMvc, @AutoConfigureMockMvc, @Controller, @ControllerAdvice 같은 설정을 포함하기 때문에, 컨트롤러 레이어의 테스트를 용이하게 한다.
+
+
+
+**주의점**
+
+4번에서 보다시피 서비스 레이어는 배제되기 때문에, 서비스 레이어에 대한 목 객체를 만드시 만들어주셔야 합니다.
+
+
+
+## 3.2 @ActiveProfiles
+
+이전에도 설명했듯이, dev 라는 설정 파일을 로드합니다.
+
+
+
+## 3.3 코드
 
 ```java
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
+@Test
+public void userFindByIdTest() throws Exception{
+    Mockito.when(userService.get(user.getId())).thenReturn(user);
 
-
-@ExtendWith(SpringExtension.class)
-@SpringBootTest
-@ActiveProfiles(value = "prod")
-public class DatabasePropertiesProdIntegrationTest {
-
-    @Autowired
-    private DatabaseProperties databaseProperties;
-
-    @Test
-    public void whenSimplePropertyQueriedThenReturnsPropertyValue()
-            throws Exception {
-        Assertions.assertEquals("prod", databaseProperties.getUsername(),
-                "Incorrectly bound Username property");
-        Assertions.assertEquals("prodpw", databaseProperties.getPassword(),
-                "Incorrectly bound Password property");
-    }
-
-    @Test
-    public void whenNestedPropertyQueriedThenReturnsPropertyValue()
-            throws Exception {
-        Assertions.assertEquals("prodip", databaseProperties.getServer().getIp(),
-                "Incorrectly bound Server IP nested property");
-        Assertions.assertEquals(1234, databaseProperties.getServer().getPort(),
-                "Incorrectly bound Server Port nested property");
-    }
+    mockMvc.perform(MockMvcRequestBuilders
+            .get("/user/id")
+            .param("id", userDto.getId().toString())
+            .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id", is(user.getId().intValue())))
+            .andExpect(jsonPath("$.email", is(user.getEmail())))
+            .andExpect(jsonPath("$.password").value(IsNull.nullValue()));
 }
+
+@Test
+    public void userAddUserTest() throws Exception{
+        given(userService.add(any(User.class))).willReturn(user);
+
+        mockMvc.perform(MockMvcRequestBuilders
+                .post("/user")
+                .content(mapper.writeValueAsString(userDto))
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(userDto.getId().intValue())))
+                .andExpect(jsonPath("$.email", is(userDto.getEmail())))
+                .andExpect(jsonPath("$.password").value(IsNull.nullValue()));
+    }
 ```
 
-### 5.3 @ActiveProfiles
+get, post 코드를 보면서 익혀보겠습니다.
 
-통합 테스트를 진행할 때 필요한 설정 파일을 읽어오도록 지정할 수 있습니다.
-
-#### @ActiveProfiles(value =  "prod")
-
-application-prod.yml 파일을 읽어오도록 설정합니다.
+stubbing method를 설정하는 방법은 제가 공부하면서 크게 2가지로 확인하였습니다.
 
 
 
-# 6. 마무리
+### given , when
 
-스프링 부트 설정값을 @Configuration 파일로 직접 읽어오는 방법과 @Configuration 파일을 테스트하는 방법을 확인했습니다.
+위에서 보다시피, 특정 메소드가 호출될때, 목 객체 메소드의 특정한 값을 반환하도록  지정할 수 있습니다.
 
-완료한 코드는 아래에서 확인할 수 있습니다.
+### password
 
+mockMvc 같은 경우 널 값을 반환할때 is(null) 로 체크가 안됩니다. 따라서 특정 json 값이 null인지 
+
+jsonPath("$.<name>").value(IsNull.nullValue()) 요렇게 체크하셔야 됩니다.
+
+
+
+## 3.4 대망의 삽질
+
+mockMvc 를 통해 post 요청을 테스트하고자 했을때, 계속해서 null 을 반환하여, 제가 지정한 user 라는 데이터를 반환하지 못했습니다.
+
+stackOverflow 를 참고해서 확인해보니, 반환하고자 하는 값에 equals 를 적절하게 구현하지 않으면, 기존의 equals 로 동일성을 비교하는데
+
+이 경우에 컨트롤러가 받는 실제 User 인스턴스가 직렬화 되었기때문에 User 클래스에서 equals() or hashcode() 가 재정의한 경우에만 동작합니다.
+
+
+
+따라서 여기서는 단순히 any(object) 를 사용하여, 어떠한 값이 들어오더라도, 항상 동일한 반환값을 지정할 수 있게 했습니다.
